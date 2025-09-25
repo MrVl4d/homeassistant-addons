@@ -1,38 +1,25 @@
----
 name: "RTSP Recorder"
-version: "1.0.2"
+version: "1.0.3"
 slug: "rtsp_recorder"
-description: >-
-  Record segments from one or more RTSP streams and notify another service
-  when each video segment is created.
+description: "Record RTSP streams with speed control, date folders, and webhooks"
 url: "https://example.com/rtsp_recorder"
 init: false
 startup: application
-# Supported CPU architectures. Most Home Assistant installations will use one of
-# these. See https://developers.home-assistant.io/docs/add-ons/configuration/#arch
-# for details.
 arch:
-  - aarch64
   - amd64
-  - armhf
+  - aarch64
   - armv7
+  - armhf
   - i386
 
-# Map the media directory read/write so video recordings can be accessed by the
-# user. The config directory is mapped read/write so we can read the
-# add-on options file and persist any state if needed.
+# Монтируем медиа и конфиг, плюс пробрасываем GPU для VA-API
 map:
   - media:rw
   - config:rw
-
-# Expose the GPU render node into the container so that VA-API can access it
-# when hardware acceleration is enabled. This maps the entire /dev/dri
-# directory; adjust if your hardware requires a different path. Without
-# specifying this, ffmpeg will not be able to access the GPU.
 devices:
   - /dev/dri
 
-# Default configuration values. Users can override these in the add-on UI.
+# Параметры по умолчанию
 options:
   streams: []
   default_setpts: 1
@@ -43,17 +30,14 @@ options:
   use_hwaccel: false
   hw_device: "/dev/dri/renderD128"
   global_quality: 39
-  max_filesize_mb: 0
 
-# Schema defines the validation rules for user supplied options. See the
-# developer documentation for supported data types. Nested dictionaries and
-# arrays are allowed up to two levels deep. The `?` suffix makes a field
-# optional when no default is provided in `options`.
+# Валидация параметров
 schema:
   streams:
     - url: str
       name: str?
       expected_duration: int(1,)?
+      max_filesize_mb: int(0,)?
       setpts: float(0.001,)?
   default_setpts: float(0.001,)
   default_expected_duration: int(1,)
@@ -63,4 +47,3 @@ schema:
   use_hwaccel: bool
   hw_device: str?
   global_quality: int(0,51)?
-  max_filesize_mb: int(0,)?
