@@ -1,5 +1,5 @@
 name: "RTSP Recorder"
-version: "1.0.8"
+version: "1.0.9"
 slug: "rtsp_recorder"
 description: "Record RTSP streams with speed control, date folders, and webhooks"
 url: "https://example.com/rtsp_recorder"

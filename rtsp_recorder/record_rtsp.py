@@ -142,7 +142,7 @@ def record_stream_loop(
         ensure_directory(day_path)
 
         safe_name = name.replace(" ", "_")
-        ts_str = start_ts.strftime("%Y%m%d_%H%M%S")
+        ts_str = start_ts.strftime("%Y.%m.%d_%H:%M:%S")
         filename = f"{safe_name}_{ts_str}.mp4"
         full_path = os.path.join(day_path, filename)
 
