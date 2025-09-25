@@ -1,6 +1,11 @@
 ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:latest
 FROM $BUILD_FROM
 
+ENV TZ=Europe/Kyiv
+RUN apk add --no-cache tzdata \
+    && cp /usr/share/zoneinfo/Europe/Kyiv /etc/localtime \
+    && echo "Europe/Kyiv" > /etc/timezone
+
 # Python + requests из apk (без pip), ffmpeg, Intel VA-API
 RUN apk add --no-cache \
       python3 \
