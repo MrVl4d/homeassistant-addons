@@ -128,7 +128,7 @@ def record_stream_loop(
 
     while not STOP_EVENT.is_set():
         # timezone-aware UTC (Python 3.12)
-        start_ts = datetime.datetime.now(datetime.UTC)
+        start_ts = datetime.datetime.now().astimezone()
 
         # real-time record length = desired output length * speed multiplier
         try:
