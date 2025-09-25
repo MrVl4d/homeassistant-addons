@@ -5,6 +5,7 @@ import os
 import sys
 import json
 import time
+import glob
 import shlex
 import signal
 import logging
@@ -31,7 +32,6 @@ log = logging.getLogger("rtsp-recorder")
 STOP_EVENT = threading.Event()
 
 def _signal_handler(signum, frame):
-    # mark global stop; workers react and finalize ffmpeg cleanly
     STOP_EVENT.set()
 
 for _sig in (signal.SIGTERM, signal.SIGINT):
@@ -101,6 +101,13 @@ def _post_event(event_url: Optional[str], template: Optional[str], payload: dict
     except Exception as e:
         log.warning("Failed to POST event for '%s': %s", payload.get("stream"), e)
 
+def _pick_va_device(explicit: Optional[str]) -> Optional[str]:
+    """Pick a VAAPI render device (/dev/dri/renderD*)."""
+    if explicit and os.path.exists(explicit):
+        return explicit
+    cands = sorted(glob.glob("/dev/dri/renderD*"))
+    return cands[0] if cands else None
+
 # -----------------------------------------------------------------------------
 # worker
 # -----------------------------------------------------------------------------
@@ -111,7 +118,7 @@ def record_stream_loop(
     setpts: float,
     output_dir: str,
     event_url: Optional[str],
-    use_hwaccel: bool = False,                 # we will use VAAPI encode only by default
+    use_hwaccel: bool = False,                 # when true: VAAPI decode + encode
     hw_device: str = "/dev/dri/renderD128",
     global_quality: int = 39,
     max_filesize_mb: int = 0,                  # per-stream
@@ -141,8 +148,12 @@ def record_stream_loop(
 
         # ---------------------------------------------------------------------
         # build ffmpeg cmd
-        # Strategy: CPU decode, apply setpts, then upload to GPU and VAAPI encode
-        # This avoids VAAPI filter graph incompatibilities with setpts.
+        # When use_hwaccel is true:
+        #   - VAAPI decode:   -hwaccel vaapi -hwaccel_device <dev> -hwaccel_output_format vaapi
+        #   - VAAPI encode:   -c:v h264_vaapi -global_quality <N>
+        #   - Filter bridge:  hwdownload,format=nv12,setpts=...,hwupload,format=nv12
+        # We also initialize the device via -init_hw_device / -filter_hw_device
+        # for robust pipeline selection.
         # ---------------------------------------------------------------------
         loglevel = "info" if ffmpeg_show_output else "warning"
 
@@ -153,32 +164,41 @@ def record_stream_loop(
             "-nostdin",
             "-fflags", "+genpts+discardcorrupt",
             "-rtsp_transport", "tcp",
-            "-i", url,
         ]
 
-        # video encoder
+        va_dev = None
         if use_hwaccel:
-            # VAAPI encode only; keep decode on CPU
-            cmd += ["-c:v", "h264_vaapi", "-global_quality", str(global_quality)]
-            # setpts (CPU) then upload to GPU
-            try:
-                inv = 1.0 / float(setpts)
-            except Exception:
-                inv = 1.0
-            vf = f"setpts={inv:.6f}*PTS,format=nv12,hwupload"
-            # Allow specifying device explicitly for upload
-            # (some ffmpeg builds require hwupload=derive_device)
-            # We keep the default; ffmpeg will use VAAPI default device or env.
+            va_dev = _pick_va_device(hw_device if hw_device else None)
+            if va_dev:
+                # Robust init path
+                cmd += ["-init_hw_device", f"vaapi=va:{va_dev}", "-filter_hw_device", "va"]
+                # Decoder on VAAPI
+                cmd += [
+                    "-hwaccel", "vaapi",
+                    "-hwaccel_device", va_dev,
+                    "-hwaccel_output_format", "vaapi",
+                ]
+            else:
+                log.warning("VAAPI device not found under /dev/dri; falling back to software for '%s'", name)
+
+        # input
+        cmd += ["-i", url]
+
+        # setpts factor
+        try:
+            inv = 1.0 / float(setpts)
+        except Exception:
+            inv = 1.0
+
+        # filters & encoder
+        if use_hwaccel and va_dev:
+            # decode is VAAPI → frames are on GPU; download → setpts on CPU → upload → encode on VAAPI
+            vf = f"hwdownload,format=nv12,setpts={inv:.6f}*PTS,hwupload,format=nv12"
             cmd += ["-filter:v", vf]
-            # expose device to encoder
-            cmd += ["-vaapi_device", hw_device]
+            cmd += ["-c:v", "h264_vaapi", "-global_quality", str(global_quality)]
         else:
-            # software encode path
+            # full software path
             cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23"]
-            try:
-                inv = 1.0 / float(setpts)
-            except Exception:
-                inv = 1.0
             cmd += ["-filter:v", f"setpts={inv:.6f}*PTS"]
 
         if max_filesize_mb and int(max_filesize_mb) > 0:
@@ -190,8 +210,8 @@ def record_stream_loop(
         # ---------------------------------------------------------------------
         # logging
         # ---------------------------------------------------------------------
-        # redact URL in the logged command
         log_cmd = cmd.copy()
+        # redact URL in logged command (after "-i")
         try:
             i_idx = log_cmd.index("-i")
             if i_idx + 1 < len(log_cmd):
