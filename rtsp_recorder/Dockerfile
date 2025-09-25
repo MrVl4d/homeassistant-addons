@@ -8,11 +8,10 @@ FROM $BUILD_FROM
 RUN apk add --no-cache \
       python3 \
       py3-pip \
+      py3-requests \
       ffmpeg \
       intel-media-sdk \
-      intel-media-driver && \
-    pip3 install --no-cache --upgrade \
-      requests
+      intel-media-driver
 
 # Copy our runtime script and the Python program into the image. The
 # working directory remains the default root (/). The script reads

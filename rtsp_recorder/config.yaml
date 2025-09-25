@@ -1,6 +1,6 @@
 ---
 name: "RTSP Recorder"
-version: "1.0.0"
+version: "1.0.1"
 slug: "rtsp_recorder"
 description: >-
   Record segments from one or more RTSP streams and notify another service
