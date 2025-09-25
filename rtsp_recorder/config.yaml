@@ -1,6 +1,6 @@
 ---
 name: "RTSP Recorder"
-version: "1.0.1"
+version: "1.0.2"
 slug: "rtsp_recorder"
 description: >-
   Record segments from one or more RTSP streams and notify another service
@@ -35,33 +35,15 @@ devices:
 # Default configuration values. Users can override these in the add-on UI.
 options:
   streams: []
-  default_setpts: 1.0
+  default_setpts: 1
   default_expected_duration: 60
-  # Base directory where clips are stored. The recorder will create a
-  # subdirectory for each day in the format YYYY.MM.DD under this path,
-  # so the final path of a file looks like /media/camera/YYYY.MM.DD/stream_name_timestamp.mp4.
   output_dir: "/media/camera"
-  # When enabled the recorder will leverage VA-API hardware acceleration for
-  # decoding and encoding. This requires that your host's GPU device is
-  # passed into the container (see the `devices` section below) and that
-  # appropriate drivers (e.g. intel-media-driver) are installed in the container.
-  use_hwaccel: false
-  # Path to the VA-API render node to use when hardware acceleration is enabled.
-  hw_device: "/dev/dri/renderD128"
-  # Global quality setting for VA-API encoders. Lower values improve quality but
-  # increase file size. This is ignored when software encoding is used.
-  global_quality: 39
-  # Maximum file size in megabytes. Set to 0 to disable. If enabled, ffmpeg will
-  # stop writing to the output file when this limit is reached. Note that
-  # time-based recording still applies, so this is an additional safeguard.
-  max_filesize_mb: 0
   event_url: null
-  # Optional payload template for the HTTP event. If set, the recorder will
-  # construct the POST body using this template instead of sending a JSON
-  # payload. Placeholders enclosed in curly braces will be replaced with
-  # variables: {stream}, {url}, {file}, {path}, {timestamp}, {success}. The
-  # resulting string is sent as form data (content-type: application/x-www-form-urlencoded).
   event_body_template: null
+  use_hwaccel: false
+  hw_device: "/dev/dri/renderD128"
+  global_quality: 39
+  max_filesize_mb: 0
 
 # Schema defines the validation rules for user supplied options. See the
 # developer documentation for supported data types. Nested dictionaries and
@@ -71,14 +53,14 @@ schema:
   streams:
     - url: str
       name: str?
-      expected_duration: int?
-      setpts: float?
-  default_setpts: float
-  default_expected_duration: int
-  output_dir: str?
+      expected_duration: int(1,)?
+      setpts: float(0.001,)?
+  default_setpts: float(0.001,)
+  default_expected_duration: int(1,)
+  output_dir: str
   event_url: url?
   event_body_template: str?
   use_hwaccel: bool
   hw_device: str?
-  global_quality: int?
-  max_filesize_mb: int?
+  global_quality: int(0,51)?
+  max_filesize_mb: int(0,)?
