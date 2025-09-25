@@ -1,25 +1,6 @@
-name: "RTSP Recorder"
-version: "1.0.3"
-slug: "rtsp_recorder"
-description: "Record RTSP streams with speed control, date folders, and webhooks"
-url: "https://example.com/rtsp_recorder"
-init: false
-startup: application
-arch:
-  - amd64
-  - aarch64
-  - armv7
-  - armhf
-  - i386
+# config.yaml — bump your version too
+version: "1.0.4"
 
-# Монтируем медиа и конфиг, плюс пробрасываем GPU для VA-API
-map:
-  - media:rw
-  - config:rw
-devices:
-  - /dev/dri
-
-# Параметры по умолчанию
 options:
   streams: []
   default_setpts: 1
@@ -30,8 +11,8 @@ options:
   use_hwaccel: false
   hw_device: "/dev/dri/renderD128"
   global_quality: 39
+  ffmpeg_show_output: false
 
-# Валидация параметров
 schema:
   streams:
     - url: str
@@ -47,3 +28,4 @@ schema:
   use_hwaccel: bool
   hw_device: str?
   global_quality: int(0,51)?
+  ffmpeg_show_output: bool
