@@ -1,10 +1,13 @@
 name: "RTSP Recorder"
-version: "1.0.5"
+version: "1.0.6"
 slug: "rtsp_recorder"
 description: "Record RTSP streams with speed control, date folders, and webhooks"
 url: "https://example.com/rtsp_recorder"
 init: false
 startup: application
+full_access: true
+privileged:
+  - PERFMON
 arch:
   - amd64
   - aarch64
