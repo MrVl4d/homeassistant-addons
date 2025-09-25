@@ -130,7 +130,7 @@ def record_stream_loop(
         # timezone-aware UTC (Python 3.12)
         start_ts = datetime.datetime.now(datetime.UTC)
 
-        # how long to record in real time = desired output length * speed multiplier
+        # real-time record length = desired output length * speed multiplier
         try:
             record_seconds = float(expected_duration) * float(setpts)
         except Exception:
@@ -147,13 +147,12 @@ def record_stream_loop(
         full_path = os.path.join(day_path, filename)
 
         # ---------------------------------------------------------------------
-        # build ffmpeg cmd
-        # When use_hwaccel is true:
-        #   - VAAPI decode:   -hwaccel vaapi -hwaccel_device <dev> -hwaccel_output_format vaapi
-        #   - VAAPI encode:   -c:v h264_vaapi -global_quality <N>
-        #   - Filter bridge:  hwdownload,format=nv12,setpts=...,hwupload,format=nv12
-        # We also initialize the device via -init_hw_device / -filter_hw_device
-        # for robust pipeline selection.
+        # build ffmpeg cmd (match user's VAAPI flags)
+        # VAAPI decode + encode when use_hwaccel == True:
+        #   -hwaccel_flags allow_profile_mismatch
+        #   -hwaccel vaapi
+        #   -hwaccel_device <dev>
+        #   -hwaccel_output_format vaapi
         # ---------------------------------------------------------------------
         loglevel = "info" if ffmpeg_show_output else "warning"
 
@@ -170,10 +169,8 @@ def record_stream_loop(
         if use_hwaccel:
             va_dev = _pick_va_device(hw_device if hw_device else None)
             if va_dev:
-                # Robust init path
-                cmd += ["-init_hw_device", f"vaapi=va:{va_dev}", "-filter_hw_device", "va"]
-                # Decoder on VAAPI
                 cmd += [
+                    "-hwaccel_flags", "allow_profile_mismatch",
                     "-hwaccel", "vaapi",
                     "-hwaccel_device", va_dev,
                     "-hwaccel_output_format", "vaapi",
@@ -192,8 +189,8 @@ def record_stream_loop(
 
         # filters & encoder
         if use_hwaccel and va_dev:
-            # decode is VAAPI → frames are on GPU; download → setpts on CPU → upload → encode on VAAPI
-            vf = f"hwdownload,format=nv12,setpts={inv:.6f}*PTS,hwupload,format=nv12"
+            # VAAPI decode -> CPU setpts -> VAAPI encode
+            vf = f"setpts={inv:.6f}*PTS"
             cmd += ["-filter:v", vf]
             cmd += ["-c:v", "h264_vaapi", "-global_quality", str(global_quality)]
         else:
