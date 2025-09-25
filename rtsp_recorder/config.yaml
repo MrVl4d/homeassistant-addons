@@ -1,6 +1,25 @@
-# config.yaml — bump your version too
-version: "1.0.4"
+name: "RTSP Recorder"
+version: "1.0.5"
+slug: "rtsp_recorder"
+description: "Record RTSP streams with speed control, date folders, and webhooks"
+url: "https://example.com/rtsp_recorder"
+init: false
+startup: application
+arch:
+  - amd64
+  - aarch64
+  - armv7
+  - armhf
+  - i386
 
+# Монтируем медиа и конфиг, плюс пробрасываем GPU для VA-API
+map:
+  - media:rw
+  - config:rw
+devices:
+  - /dev/dri
+
+# Параметры по умолчанию
 options:
   streams: []
   default_setpts: 1
