@@ -1,0 +1,7 @@
+name: "My Custom Add-ons"
+url: "https://github.com/MrVl4d/homeassistant-addons"
+maintainer: "Your Name <you@example.com>"
+addons:
+  - slug: "rtsp_recorder"
+    name: "RTSP Recorder"
+    description: "Record RTSP streams and send notifications"
