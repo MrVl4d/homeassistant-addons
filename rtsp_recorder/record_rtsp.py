@@ -187,6 +187,8 @@ def record_stream_loop(
         except Exception:
             inv = 1.0
 
+        cmd += ["-an"]
+        
         # filters & encoder
         if use_hwaccel and va_dev:
             # VAAPI decode -> CPU setpts -> VAAPI encode
