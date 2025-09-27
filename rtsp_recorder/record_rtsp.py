@@ -60,6 +60,21 @@ def _probe_codec(ffprobe_bin: str, rtsp_url: str) -> Optional[str]:
         return None
 # -----------------------------------------------------------------------------
 
+# Graceful stop handling
+STOP_EVENT = threading.Event()
+def _signal_handler(signum, frame):
+    try:
+        log.info("Stop signal received: %s", signum)
+    except Exception:
+        pass
+    STOP_EVENT.set()
+
+for _sig in (signal.SIGTERM, signal.SIGINT):
+    try:
+        signal.signal(_sig, _signal_handler)
+    except Exception:
+        pass
+
 # -----------------------------------------------------------------------------
 # options
 # -----------------------------------------------------------------------------
@@ -68,7 +83,6 @@ def read_options() -> dict:
     if os.path.exists(p):
         with open(p, "r", encoding="utf-8") as f:
             return json.load(f)
-    # fallback for manual runs (env/config-less)
     return {
         "streams": [],
         "default_setpts": 10,
@@ -108,7 +122,6 @@ def _pipe_to_log(pipe, level=logging.INFO, prefix="ffmpeg"):
             if not line:
                 break
             try:
-                # strip trailing newline for clean log lines
                 s = line.rstrip("\r\n")
             except Exception:
                 s = line
@@ -127,7 +140,6 @@ def _post_event(event_url: Optional[str], payload: dict, template: Optional[str]
         return
     try:
         if template:
-            # template is application/x-www-form-urlencoded body
             body = template.format(
                 stream=payload.get("stream", ""),
                 path=payload.get("path", ""),
@@ -137,6 +149,7 @@ def _post_event(event_url: Optional[str], payload: dict, template: Optional[str]
                 codec_in=payload.get("codec_in", ""),
                 success=str(payload.get("success", False)).lower(),
                 timestamp=payload.get("timestamp", ""),
+                stopped=str(payload.get("stopped", False)).lower(),
             )
             headers = {"Content-Type": "application/x-www-form-urlencoded"}
             requests.post(event_url, data=body, headers=headers, timeout=5)
@@ -169,7 +182,7 @@ def record_stream_loop(
     ffmpeg_show_output: bool = False,
 ) -> None:
 
-    while True:
+    while not STOP_EVENT.is_set():
         start_ts = datetime.datetime.now().astimezone()
         try:
             record_seconds = float(expected_duration) * float(setpts)
@@ -185,11 +198,9 @@ def record_stream_loop(
         filename = f"{safe_name}_{ts_str}.mp4"
         full_path = os.path.join(day_path, filename)
 
-        # Detect input codec & choose hw mode
         codec = _probe_codec(FFPROBE_BIN, url)
         picked_hw = _pick_hw_mode()
 
-        # base ffmpeg
         loglevel = "info" if ffmpeg_show_output else "warning"
         cmd = [
             FFMPEG_BIN,
@@ -213,58 +224,46 @@ def record_stream_loop(
             else:
                 log.warning("VAAPI device not found under /dev/dri; falling back to software for '%s'", name)
 
-        # input
         drm_in = ["-hwaccel", "drm"] if (use_hwaccel and picked_hw == "drm" and codec == "hevc") else []
         cmd += drm_in + ["-i", url]
 
-        # setpts factor
         try:
             inv = 1.0 / float(setpts)
         except Exception:
             inv = 1.0
 
         cmd += ["-an"]
-        
-        # filters & encoder
+
         if use_hwaccel and picked_hw == "vaapi" and va_dev:
-            # VAAPI decode -> CPU setpts -> VAAPI encode
             vf = f"setpts={inv:.6f}*PTS"
             cmd += ["-filter:v", vf]
             cmd += ["-c:v", "h264_vaapi", "-global_quality", str(global_quality)]
         elif picked_hw == "drm":
-            # RPi5: HEVC hw-decode (via -hwaccel drm added on input) -> CPU setpts -> SW encode
             cmd += [
                 "-filter:v", f"setpts={inv:.6f}*PTS",
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-movflags", "+faststart"
             ]
         else:
-            # full software path
             cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23"]
+            cmd += ["-filter:v", f"setpts={inv:.6f}*PTS"]
 
         if max_filesize_mb and int(max_filesize_mb) > 0:
             cmd += ["-fs", f"{int(max_filesize_mb)}M"]
         if record_seconds and record_seconds > 0:
             cmd += ["-t", f"{record_seconds:.3f}"]
 
-        # ---------------------------------------------------------------------
-        # logging
-        # ---------------------------------------------------------------------
+        # log the command (URL redacted)
         log_cmd = cmd.copy()
-        # redact URL in logged command (after "-i")
         try:
             i_idx = log_cmd.index("-i")
             if i_idx + 1 < len(log_cmd):
                 log_cmd[i_idx + 1] = _redact_url(log_cmd[i_idx + 1])
         except Exception:
             pass
-
         logged_cmd = " ".join(shlex.quote(x) for x in log_cmd + [full_path])
         log.info("Started recording worker for '%s' at %s", name, start_ts.isoformat())
         log.info("ffmpeg: %s", logged_cmd)
 
-        # ---------------------------------------------------------------------
-        # run ffmpeg
-        # ---------------------------------------------------------------------
         proc = None
         try:
             proc = subprocess.Popen(
@@ -288,16 +287,19 @@ def record_stream_loop(
                 threads.append(t_err)
 
             deadline = time.time() + float(record_seconds or 0)
+            stop_requested = False
+
             while True:
                 rc = proc.poll()
                 if rc is not None:
                     break
-                if record_seconds and time.time() >= deadline:
+
+                if STOP_EVENT.is_set():
+                    stop_requested = True
                     try:
                         proc.terminate()
                     except Exception:
                         pass
-                    # give it a moment to flush and close the file
                     try:
                         proc.wait(timeout=5)
                     except Exception:
@@ -306,6 +308,21 @@ def record_stream_loop(
                         except Exception:
                             pass
                     break
+
+                if record_seconds and time.time() >= deadline:
+                    try:
+                        proc.terminate()
+                    except Exception:
+                        pass
+                    try:
+                        proc.wait(timeout=5)
+                    except Exception:
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
+                    break
+
                 time.sleep(0.2)
 
             for t in threads:
@@ -316,7 +333,7 @@ def record_stream_loop(
 
             rc = proc.returncode if proc else None
             ok = (rc == 0) and os.path.exists(full_path)
-            # event
+
             _post_event(event_url, {
                 "stream": name,
                 "path": full_path,
@@ -326,7 +343,11 @@ def record_stream_loop(
                 "codec_in": codec or "",
                 "success": ok,
                 "timestamp": datetime.datetime.now().astimezone().isoformat(),
+                "stopped": stop_requested,
             }, event_body_template, log)
+
+            if stop_requested:
+                break  # exit loop on stop
 
         except Exception as e:
             log.error("Recording failed for '%s': %s", name, e)
@@ -339,7 +360,11 @@ def record_stream_loop(
                 "codec_in": codec or "",
                 "success": False,
                 "timestamp": datetime.datetime.now().astimezone().isoformat(),
+                "stopped": STOP_EVENT.is_set(),
             }, event_body_template, log)
+
+            if STOP_EVENT.is_set():
+                break
 
         finally:
             try:
@@ -353,7 +378,6 @@ def record_stream_loop(
             except Exception:
                 pass
 
-        # small pause before next segment
         time.sleep(0.25)
 
 # -----------------------------------------------------------------------------
@@ -384,7 +408,8 @@ def main() -> None:
         expected_duration = float(item.get("expected_duration") or default_expected_duration)
         setpts = float(item.get("setpts") or default_setpts)
         max_filesize_mb = item.get("max_filesize_mb")
-        log.info("Starting stream '%s' -> out=%s exp=%ss setpts=%s hw=%s", name, output_dir, expected_duration, setpts, "on" if use_hwaccel else "off")
+        log.info("Starting stream '%s' -> out=%s exp=%ss setpts=%s hw=%s",
+                 name, output_dir, expected_duration, setpts, "on" if use_hwaccel else "off")
         t = threading.Thread(
             target=record_stream_loop,
             args=(
@@ -410,7 +435,6 @@ def main() -> None:
         t.join()
 
 if __name__ == "__main__":
-    # if started manually, make sure stdout is not fully buffered
     try:
         os.environ["PYTHONUNBUFFERED"] = "1"
     except Exception:
