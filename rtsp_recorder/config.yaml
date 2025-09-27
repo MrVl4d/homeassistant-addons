@@ -1,5 +1,5 @@
 name: "RTSP Recorder"
-version: "1.2.3"
+version: "1.2.4"
 slug: "rtsp_recorder"
 description: "Record RTSP streams with speed control, date folders, and webhooks"
 url: "https://example.com/rtsp_recorder"
@@ -8,32 +8,42 @@ startup: application
 full_access: true
 privileged:
   - PERFMON
+devices:
+  - /dev/dri/renderD128:/dev/dri/renderD128
+  - /dev/dri/card0:/dev/dri/card0
+  - /dev/media0:/dev/media0
+  - /dev/media1:/dev/media1
+  - /dev/media2:/dev/media2
+  - /dev/video19:/dev/video19
+udev: true
 arch:
   - amd64
   - aarch64
   - armv7
   - armhf
   - i386
-
-# Монтируем медиа и конфиг, плюс пробрасываем GPU для VA-API
-map:
-  - media:rw
-  - config:rw
-devices:
-  - /dev/dri
-
-# Параметры по умолчанию
 options:
-  streams: []
-  default_setpts: 1
+  streams:
+    - url: "rtsp://user:pass@192.168.1.10:554/stream1"
+      name: "cam1"
+      expected_duration: 60
+      max_filesize_mb: 0
+      setpts: 10
+  default_setpts: 10
   default_expected_duration: 60
   output_dir: "/media/camera"
-  event_url: null
-  event_body_template: null
-  use_hwaccel: false
+  event_url: ""
+  event_body_template: ""
+  use_hwaccel: true
   hw_device: "/dev/dri/renderD128"
-  global_quality: 39
+  global_quality: 24
   ffmpeg_show_output: false
+
+  # ---- Variant B host-ffmpeg (NEW) ----
+  custom_ffmpeg_bin_dir: "/custom-ffmpeg/bin"
+  custom_ffmpeg_lib_dir: "/custom-ffmpeg/lib"
+  # HW accel selection (NEW): auto|vaapi|drm|none
+  hwaccel_mode: "auto"
 
 schema:
   streams:
@@ -51,3 +61,8 @@ schema:
   hw_device: str?
   global_quality: int(0,51)?
   ffmpeg_show_output: bool
+
+  # ---- Variant B host-ffmpeg (NEW) ----
+  custom_ffmpeg_bin_dir: str
+  custom_ffmpeg_lib_dir: str
+  hwaccel_mode: list(auto|vaapi|drm|none)
