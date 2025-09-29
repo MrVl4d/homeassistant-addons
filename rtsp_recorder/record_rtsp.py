@@ -170,6 +170,8 @@ def record_stream_loop(
             va_dev = _pick_va_device(hw_device if hw_device else None)
             if va_dev:
                 cmd += [
+                    "-init_hw_device", "vaapi=va:/dev/dri/renderD128",
+                    "-filter_hw_device", "va",
                     "-hwaccel_flags", "allow_profile_mismatch",
                     "-hwaccel", "vaapi",
                     "-hwaccel_device", va_dev,
@@ -192,7 +194,7 @@ def record_stream_loop(
         # filters & encoder
         if use_hwaccel and va_dev:
             # VAAPI decode -> CPU setpts -> VAAPI encode
-            vf = f"setpts={inv:.6f}*PTS"
+            vf = f"hwdownload,format=nv12,setpts={inv:.6f}*PTS,fps=60,format=nv12,hwupload"
             cmd += ["-filter:v", vf]
             cmd += ["-c:v", "h264_vaapi", "-global_quality", str(global_quality)]
         else:
