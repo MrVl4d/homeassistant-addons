@@ -194,7 +194,7 @@ def record_stream_loop(
         # filters & encoder
         if use_hwaccel and va_dev:
             # VAAPI decode -> CPU setpts -> VAAPI encode
-            vf = f"hwdownload,format=nv12,setpts={inv:.6f}*PTS,format=nv12,hwupload"
+            vf = f"setpts={inv:.6f}*PTS,fps=60"
             cmd += ["-filter:v", vf]
             cmd += ["-c:v", "h264_vaapi", "-global_quality", str(global_quality)]
         else:
